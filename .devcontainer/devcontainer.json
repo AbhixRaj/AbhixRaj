@@ -1,5 +1,13 @@
 {
     "name": "AbhixRaj Codespace",
     "image": "mcr.microsoft.com/vscode/devcontainers/python:3.8",
-    "postCreateCommand": "pip install pymongo python-telegram-bot pyTelegramBotAPI certifi && chmod +x /workspaces/AbhixRaj/*"
+    "postCreateCommand": "pip install -r /workspaces/AbhixRaj/requirements.txt && chmod +x /workspaces/AbhixRaj/*",
+    "customizations": {
+        "vscode": {
+            "settings": {
+                "python.pythonPath": "/usr/local/bin/python3"
+            },
+            "extensions": ["ms-python.python"]
+        }
+    }
 }
