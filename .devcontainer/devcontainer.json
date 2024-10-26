@@ -1,0 +1,5 @@
+{
+    "name": "AbhixRaj Codespace",
+    "image": "mcr.microsoft.com/vscode/devcontainers/python:3.8",
+    "postCreateCommand": "pip install pymongo python-telegram-bot pyTelegramBotAPI certifi && chmod +x /workspaces/AbhixRaj/*"
+}
